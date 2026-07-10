@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Research Agent Report</title>
+  </head>
+  <body>
+    {% include "partials/summary_header.html.jinja" %}
+    <main>
+      {% for app in analytics.app_summaries %}
+        {% include "partials/app_card.html.jinja" %}
+      {% endfor %}
+    </main>
+  </body>
+</html>

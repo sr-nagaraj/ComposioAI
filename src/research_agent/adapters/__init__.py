@@ -1,0 +1,1 @@
+"""Outer-layer adapters."""

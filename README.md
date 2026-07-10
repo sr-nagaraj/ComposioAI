@@ -1,0 +1,366 @@
+# AI Research Agent for SaaS API Discovery using Composio SDK & MCP
+
+A production-minded Python project for researching SaaS developer documentation,
+extracting structured API metadata, independently verifying the results, and
+publishing the findings as an HTML case study.
+
+The project is designed around Clean Architecture: domain models and use cases
+stay independent from Composio, MCP, file storage, and report rendering. Concrete
+tool integrations live at the outer edge behind explicit interfaces.
+
+## Overview
+
+Modern SaaS API discovery is slow, repetitive, and error-prone. Teams evaluating
+integrations often need to answer the same questions for many applications:
+
+- Does this product expose a public API?
+- What authentication method does it use?
+- Are SDKs available?
+- Is setup self-serve?
+- Does an MCP server or integration already exist?
+- What would block implementation?
+
+This project automates that workflow while preserving a verification layer. The
+Research Agent gathers evidence from official developer documentation and
+extracts structured metadata. The Verification Agent revisits the cited sources
+independently, compares the original claims against fresh evidence, assigns
+confidence, and flags items that need human review.
+
+The final pipeline produces JSON artifacts and an HTML case study suitable for
+sharing in an interview, internal review, or open-source portfolio.
+
+## Features
+
+- Automated documentation research for app names from `apps.csv`
+- Structured metadata extraction for API discovery fields
+- Independent verification that does not trust Research Agent output
+- Deterministic confidence scoring design
+- Field-level comparison and human-review flags
+- Pattern analysis and analytics-ready domain models
+- Interactive HTML report architecture with Jinja2 templates
+- Resume and checkpointing architecture for interrupted runs
+- Structured logging and per-stage observability hooks
+- Clean ports for Composio SDK and MCP integration
+- Docker, CI, test, and script-ready project layout
+
+## Architecture
+
+```text
+apps.csv
+    |
+    v
+Research Agent
+    |
+    v
+research_results.json
+    |
+    v
+Verification Agent
+    |
+    v
+verification_report.json
+    |
+    v
+Analytics
+    |
+    v
+HTML Generator
+```
+
+### Stages
+
+`apps.csv` contains the SaaS applications to evaluate. Each row is parsed into a
+validated domain model before entering the pipeline.
+
+`Research Agent` searches official developer documentation, collects evidence,
+and extracts structured metadata such as category, authentication, API type,
+SDK availability, self-serve status, and buildability.
+
+`research_results.json` stores normalized research output as typed records. This
+artifact is the boundary between research and verification.
+
+`Verification Agent` revisits cited documentation independently, performs a
+fresh extraction, compares field-level values, identifies mismatches, and
+produces a confidence-scored verification report.
+
+`verification_report.json` stores verification outcomes, discrepancies,
+supporting evidence, confidence, and human-review recommendations.
+
+`Analytics` aggregates research and verification results into summaries,
+category breakdowns, confidence distributions, and flagged apps.
+
+`HTML Generator` renders the case study report using Jinja2 templates.
+
+## Folder Structure
+
+```text
+.
+|-- config/                 # Typed settings and static constants
+|-- data/
+|   |-- input/              # Input CSV files
+|   |-- output/             # Generated JSON and HTML artifacts
+|   `-- checkpoints/        # Resume/checkpoint state
+|-- docs/                   # Architecture notes and report assets
+|-- research/               # Research Agent phase files
+|-- verification/           # Verification Agent phase files
+|-- scripts/                # Local run helpers
+|-- src/research_agent/
+|   |-- domain/             # Pydantic entities and enums
+|   |-- interfaces/         # Abstract ports
+|   |-- use_cases/          # Application orchestration
+|   |-- analytics/          # Pure analytics computation
+|   |-- adapters/           # Storage, reporting, and concrete tool adapters
+|   |-- infrastructure/     # Logging, retry, cache, checkpoint utilities
+|   `-- cli/                # Composition root
+|-- tests/                  # Pytest unit and integration tests
+|-- Dockerfile
+|-- docker-compose.yml
+|-- Makefile
+`-- pyproject.toml
+```
+
+## Installation
+
+Requires Python 3.12.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+```
+
+Update `.env` with your API keys and runtime settings before running the
+pipeline.
+
+## Environment Variables
+
+| Variable | Description | Example |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | API key for the LLM provider used by extraction prompts. | `sk-...` |
+| `COMPOSIO_API_KEY` | API key for Composio SDK/MCP tool access. | `cmp_...` |
+| `MODEL_NAME` | Model used for metadata extraction and verification. | `gpt-4.1-mini` |
+| `LOG_LEVEL` | Logging verbosity. | `INFO` |
+| `OUTPUT_DIR` | Directory for generated JSON and HTML artifacts. | `data/output` |
+
+## Usage
+
+Run the complete pipeline:
+
+```bash
+research-agent run --input data/input/apps.csv --output-dir data/output
+```
+
+Run only research:
+
+```bash
+make research
+```
+
+Run only verification:
+
+```bash
+make verify
+```
+
+Generate HTML only:
+
+```bash
+make html
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+Run with Docker:
+
+```bash
+docker compose up
+```
+
+## Project Workflow
+
+### Research
+
+The Research Agent receives an app name, searches official documentation through
+the Composio/MCP integration point, collects evidence, prompts an LLM to extract
+structured metadata, and returns a `ResearchResult`.
+
+### Verification
+
+The Verification Agent reads research output, revisits evidence URLs, extracts
+metadata independently, compares verified values against the original research,
+and generates field-level status and confidence.
+
+### Analytics
+
+The analytics engine aggregates research and verification records into app
+summaries, confidence averages, status counts, category breakdowns, and flagged
+apps.
+
+### HTML Generation
+
+The report layer renders analytics and app summaries into a static HTML case
+study using Jinja2 templates. The generated report is intended to be published
+as a portfolio artifact or static deployment.
+
+## Verification Strategy
+
+The verification phase is intentionally independent. It does not trust the
+Research Agent's extracted metadata. Instead, it revisits the cited
+documentation, performs a separate extraction, and compares each field.
+
+Confidence scoring is deterministic and should consider evidence quality,
+official documentation, number of sources, unknown fields, contradictions, and
+missing documentation. Results that are ambiguous, unsupported, or conflicting
+should be marked for human review.
+
+### Limitations
+
+- Verification quality depends on the availability and clarity of official docs.
+- Some vendors hide API details behind login or sales flows.
+- Documentation can change after a run.
+- LLM extraction must be constrained to evidence-backed JSON and should return
+  `Unknown` when uncertain.
+- Composio SDK calls must be implemented only against confirmed SDK APIs.
+
+## Screenshots
+
+Add generated report screenshots here after the HTML report is available:
+
+![Dashboard](docs/dashboard.png)
+![Verification Report](docs/verification-report.png)
+
+## Future Improvements
+
+- Persistent response caching keyed by app name and source URL
+- Parallel worker queues for 1000+ app evaluations
+- Browser automation for docs that require client-side rendering
+- RAG over collected documentation for richer extraction
+- Incremental updates when docs change
+- SQLite or Postgres storage for intermediate results
+- Static hosting deployment for the HTML case study
+- CI artifact upload for generated reports
+- Richer observability with p50/p95 timings and error-rate dashboards
+
+## Deployment
+
+The case study can be deployed as a static artifact after HTML generation. A
+typical deployment flow is:
+
+```bash
+make install
+make run
+make html
+```
+
+Then publish `data/output/index.html` and any supporting assets to GitHub Pages,
+Netlify, Vercel, or another static host.
+
+## Final Polish Recommendations
+
+### Performance
+
+- Use bounded `asyncio` concurrency for research and verification.
+- Cache source fetches and LLM extraction outputs.
+- Process large app lists in chunks and checkpoint after each app.
+
+### Security
+
+- Keep all API keys in `.env` or secret managers.
+- Never log raw secrets or full LLM prompts containing credentials.
+- Validate and normalize URLs before fetching.
+- Restrict external tool permissions to the minimum required scope.
+
+### Error Handling
+
+- Treat one app failure as a partial result, not a pipeline failure.
+- Separate transient errors from permanent validation failures.
+- Log retries with attempt count, delay, app name, and stage.
+- Surface low-confidence and contradicted outputs for human review.
+
+### Production Readiness
+
+- Replace Composio placeholders only after confirming SDK methods.
+- Add integration tests with mocked Composio/MCP clients.
+- Store generated artifacts with run IDs.
+- Add run-level metrics and structured JSON logs.
+
+## Interview Talking Points
+
+- Clean Architecture keeps domain models independent from Composio and MCP.
+- Ports allow agents to be mocked, tested, or swapped without rewriting use
+  cases.
+- Verification is a separate trust boundary, not a formatting pass.
+- Confidence scoring should be deterministic and explainable.
+- The pipeline is designed for partial failures and resumable execution.
+- The HTML report turns raw agent output into a usable case study artifact.
+
+## Potential Interview Questions
+
+**Why separate research and verification?**
+
+Because extraction alone can be wrong. Verification creates an independent check
+against the same or additional evidence and makes uncertainty explicit.
+
+**Why use Clean Architecture here?**
+
+It isolates business rules from volatile SDKs and external tools. Composio can
+change without forcing changes to the domain model or use cases.
+
+**How would you scale from 100 to 1000 apps?**
+
+Use bounded concurrency, checkpoint per app, cache repeated source reads, process
+in chunks, and move to a queue-backed worker model when one process is no longer
+enough.
+
+**How do you avoid hallucinated metadata?**
+
+Prompts require JSON, evidence per field, and `Unknown` when uncertain. The
+extractor and parser should reject unsupported values instead of guessing.
+
+**What makes confidence trustworthy?**
+
+The scoring rules are deterministic and based on evidence presence, source
+quality, agreement between original and verified values, unknown fields, and
+conflicts.
+
+## Deliverable Checklist
+
+- [x] Research Agent
+- [x] Verification Agent
+- [x] Analytics
+- [ ] HTML Report
+- [x] README
+- [ ] Docker
+- [ ] Tests
+- [ ] CI/CD
+- [ ] Deployment
+- [x] Documentation
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+## Acknowledgements
+
+- [Composio](https://composio.dev/)
+- [OpenAI](https://openai.com/)
+- [Python](https://www.python.org/)
+- [Jinja2](https://jinja.palletsprojects.com/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [Chart.js](https://www.chartjs.org/)
