@@ -1,8 +1,11 @@
-# Core runtime
 aiofiles>=23.2
 aiolimiter>=1.1
+composio>=0.8
+composio_openai>=0.8
 diskcache>=5.6
 jinja2>=3.1
+openai>=1.0
+openai-agents>=0.1
 pandas>=2.2
 pydantic>=2.7
 pydantic-settings>=2.3
@@ -12,16 +15,7 @@ structlog>=24.1
 tenacity>=8.2
 typer>=0.12
 
-# LLM runtime
-openai>=1.0
-
-# Composio SDK
-# Official docs:
-# - OpenAI uses the official `openai` Python SDK.
-# - Composio remains the tool/session provider.
-composio>=0.8
-
-# Developer tooling
+[dev]
 mypy>=1.10
 pytest>=8.2
 pytest-asyncio>=0.23

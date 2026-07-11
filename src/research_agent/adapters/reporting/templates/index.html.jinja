@@ -1,16 +1,855 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI Research Agent Report</title>
+    <title>AI Research Agent for SaaS API Discovery</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f172a;
+        --surface: rgba(15, 23, 42, 0.78);
+        --surface-strong: rgba(30, 41, 59, 0.92);
+        --text: #e5edf8;
+        --muted: #94a3b8;
+        --border: rgba(148, 163, 184, 0.24);
+        --accent: #38bdf8;
+        --accent-2: #22c55e;
+        --warn: #f59e0b;
+        --danger: #f43f5e;
+        --unknown: #94a3b8;
+        --shadow: 0 24px 70px rgba(2, 6, 23, 0.38);
+      }
+
+      [data-theme="light"] {
+        color-scheme: light;
+        --bg: #f6f8fb;
+        --surface: rgba(255, 255, 255, 0.82);
+        --surface-strong: rgba(255, 255, 255, 0.96);
+        --text: #132033;
+        --muted: #526173;
+        --border: rgba(82, 97, 115, 0.22);
+        --accent: #0369a1;
+        --accent-2: #15803d;
+        --warn: #b45309;
+        --danger: #be123c;
+        --unknown: #64748b;
+        --shadow: 0 24px 70px rgba(15, 23, 42, 0.13);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 14% 12%, rgba(56, 189, 248, 0.2), transparent 28rem),
+          radial-gradient(circle at 80% 6%, rgba(34, 197, 94, 0.16), transparent 28rem),
+          var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .shell {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(18px);
+        background: color-mix(in srgb, var(--bg) 78%, transparent);
+      }
+
+      .nav-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        min-height: 68px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-strong);
+        color: var(--accent);
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .nav-links a,
+      .theme-toggle {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: none;
+      }
+
+      .theme-toggle {
+        cursor: pointer;
+      }
+
+      .section {
+        padding: 64px 0;
+      }
+
+      .section-tight {
+        padding: 34px 0;
+      }
+
+      .section-title {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 4vw, 44px);
+        line-height: 1.05;
+      }
+
+      .section-kicker {
+        margin: 0 0 12px;
+        color: var(--accent);
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 12px;
+      }
+
+      .section-copy {
+        max-width: 760px;
+        margin: 0 0 28px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .card-pad {
+        padding: 22px;
+      }
+
+      .metric-value {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1;
+        font-weight: 850;
+      }
+
+      .metric-label {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .insight-card {
+        min-height: 112px;
+        padding: 20px;
+        transition: transform 160ms ease, border-color 160ms ease;
+      }
+
+      .insight-card:hover,
+      .app-card:hover {
+        transform: translateY(-2px);
+        border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+      }
+
+      .pipeline {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .pipeline-step,
+      .timeline-step {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 18px;
+      }
+
+      .pipeline-step strong,
+      .timeline-step strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .pipeline-step span,
+      .timeline-step span {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(190px, 1fr));
+        overflow-x: auto;
+        gap: 12px;
+        padding-bottom: 8px;
+      }
+
+      .chart-card {
+        min-height: 340px;
+        padding: 20px;
+      }
+
+      .chart-card h3,
+      .matrix-card h3,
+      .app-card h3 {
+        margin: 0 0 16px;
+      }
+
+      .chart-wrap {
+        position: relative;
+        height: 260px;
+      }
+
+      .matrix-toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+
+      .search-input {
+        width: min(420px, 100%);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: var(--surface-strong);
+        color: var(--text);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        min-width: 1120px;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 14px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+        font-size: 14px;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 5px 9px;
+        border: 1px solid var(--border);
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .badge-pass,
+      .badge-verified,
+      .badge-high,
+      .badge-yes {
+        color: var(--accent-2);
+        border-color: color-mix(in srgb, var(--accent-2) 45%, var(--border));
+      }
+
+      .badge-fail,
+      .badge-contradicted,
+      .badge-low,
+      .badge-no {
+        color: var(--danger);
+        border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+      }
+
+      .badge-partial,
+      .badge-medium {
+        color: var(--warn);
+        border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+      }
+
+      .badge-unknown,
+      .badge-unverified {
+        color: var(--unknown);
+      }
+
+      .evidence-links {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .evidence-links a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      .app-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      details.app-card {
+        padding: 0;
+      }
+
+      details.app-card summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 22px;
+      }
+
+      details.app-card summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .detail-body {
+        border-top: 1px solid var(--border);
+        padding: 0 22px 22px;
+      }
+
+      .kv-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .kv {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        background: color-mix(in srgb, var(--surface-strong) 72%, transparent);
+      }
+
+      .kv span {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .verification-flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .field-status-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .stack-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stack-card {
+        padding: 18px;
+        text-align: center;
+      }
+
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 34px 0;
+        color: var(--muted);
+      }
+
+      .footer-grid {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      @media (max-width: 980px) {
+        .grid-4,
+        .grid-3,
+        .grid-2,
+        .pipeline,
+        .verification-flow,
+        .app-grid,
+        .stack-grid,
+        .field-status-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .nav-inner {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 14px 0;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          width: min(100% - 20px, 1180px);
+        }
+
+        .grid-4,
+        .grid-3,
+        .grid-2,
+        .pipeline,
+        .verification-flow,
+        .app-grid,
+        .stack-grid,
+        .field-status-grid,
+        .kv-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .section {
+          padding: 44px 0;
+        }
+
+        .matrix-toolbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+      }
+    </style>
   </head>
   <body>
+    <nav class="nav">
+      <div class="shell nav-inner">
+        <div class="brand">
+          <span class="brand-mark">AI</span>
+          <span>SaaS API Discovery Case Study</span>
+        </div>
+        <div class="nav-links">
+          <a href="#summary">Summary</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#charts">Charts</a>
+          <a href="#matrix">Matrix</a>
+          <a href="#verification">Verification</a>
+          <button class="theme-toggle" type="button" id="themeToggle">Light mode</button>
+        </div>
+      </div>
+    </nav>
+
     {% include "partials/summary_header.html.jinja" %}
+
     <main>
-      {% for app in analytics.app_summaries %}
-        {% include "partials/app_card.html.jinja" %}
-      {% endfor %}
+      <section class="section-tight" id="summary">
+        <div class="shell">
+          <p class="section-kicker">Executive Summary</p>
+          <h2 class="section-title">Research insights surfaced from the pipeline output.</h2>
+          <div class="grid grid-3">
+            {% for insight in executive_insights %}
+              <article class="card insight-card">
+                <strong>Insight {{ loop.index }}</strong>
+                <p>{{ insight }}</p>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="architecture">
+        <div class="shell">
+          <p class="section-kicker">Architecture</p>
+          <h2 class="section-title">A clean, evidence-first AI research pipeline.</h2>
+          <p class="section-copy">
+            The page is generated from the same JSON artifacts produced by the CLI:
+            research results, verification results, and aggregate analytics.
+          </p>
+          <div class="pipeline">
+            {% for step in architecture_steps %}
+              <div class="pipeline-step">
+                <strong>{{ step.title }}</strong>
+                <span>{{ step.description }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="workflow">
+        <div class="shell">
+          <p class="section-kicker">How The Agent Works</p>
+          <h2 class="section-title">From CSV input to verified case study.</h2>
+          <div class="timeline">
+            {% for step in workflow_steps %}
+              <div class="timeline-step">
+                <strong>Step {{ loop.index }}: {{ step.title }}</strong>
+                <span>{{ step.description }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="dashboard">
+        <div class="shell">
+          <p class="section-kicker">Research Dashboard</p>
+          <h2 class="section-title">Run-level outcomes.</h2>
+          <div class="grid grid-4">
+            {% for metric in dashboard_metrics %}
+              <article class="card card-pad">
+                <p class="metric-value">{{ metric.value }}</p>
+                <p class="metric-label">{{ metric.label }}</p>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="charts">
+        <div class="shell">
+          <p class="section-kicker">Visualizations</p>
+          <h2 class="section-title">Patterns across authentication, API shape, blockers, and confidence.</h2>
+          <div class="grid grid-2">
+            {% for chart in charts %}
+              <article class="card chart-card">
+                <h3>{{ chart.title }}</h3>
+                <div class="chart-wrap">
+                  <canvas id="{{ chart.id }}"></canvas>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="matrix">
+        <div class="shell">
+          <p class="section-kicker">Research Matrix</p>
+          <h2 class="section-title">Searchable field-level view.</h2>
+          <div class="card card-pad matrix-card">
+            <div class="matrix-toolbar">
+              <h3>{{ app_rows|length }} applications</h3>
+              <input
+                class="search-input"
+                type="search"
+                id="matrixSearch"
+                placeholder="Search app, category, auth, blocker..."
+                aria-label="Search research matrix"
+              >
+            </div>
+            <div class="table-wrap">
+              <table id="researchMatrix">
+                <thead>
+                  <tr>
+                    <th>App</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Authentication</th>
+                    <th>Access</th>
+                    <th>API Type</th>
+                    <th>SDK</th>
+                    <th>MCP</th>
+                    <th>Buildability</th>
+                    <th>Main Blocker</th>
+                    <th>Research Confidence</th>
+                    <th>Verification</th>
+                    <th>Evidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in app_rows %}
+                    <tr>
+                      <td><strong>{{ row.app_name }}</strong></td>
+                      <td>{{ row.category }}</td>
+                      <td>{{ row.description }}</td>
+                      <td>{{ row.authentication }}</td>
+                      <td>{{ row.access_model }}</td>
+                      <td>{{ row.api_type }}</td>
+                      <td><span class="badge badge-{{ row.sdk_class }}">{{ row.sdk_available }}</span></td>
+                      <td><span class="badge badge-{{ row.mcp_class }}">{{ row.existing_mcp }}</span></td>
+                      <td>
+                        <span class="badge badge-{{ row.buildability_class }}">
+                          {{ row.buildability }}
+                        </span>
+                      </td>
+                      <td>{{ row.main_blocker }}</td>
+                      <td>{{ row.research_confidence }}</td>
+                      <td>
+                        <span class="badge badge-{{ row.verification_class }}">
+                          {{ row.verification_status }}
+                        </span>
+                      </td>
+                      <td>
+                        <div class="evidence-links">
+                          {% for url in row.evidence_urls %}
+                            <a href="{{ url }}" target="_blank" rel="noopener">Source {{ loop.index }}</a>
+                          {% endfor %}
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="apps">
+        <div class="shell">
+          <p class="section-kicker">App Detail Cards</p>
+          <h2 class="section-title">Evidence, discrepancies, and verification confidence.</h2>
+          <div class="app-grid">
+            {% for app in app_rows %}
+              {% include "partials/app_card.html.jinja" %}
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="patterns">
+        <div class="shell">
+          <p class="section-kicker">Patterns Discovered</p>
+          <h2 class="section-title">Generated automatically from analytics.</h2>
+          <div class="grid grid-2">
+            {% for insight in analytics.insights %}
+              <article class="card card-pad">
+                <strong>{{ insight }}</strong>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="verification">
+        <div class="shell">
+          <p class="section-kicker">Verification</p>
+          <h2 class="section-title">Independent review against official documentation.</h2>
+          <p class="section-copy">
+            The verification agent reopens evidence URLs, compares each extracted field against
+            official documentation text, records discrepancies, and updates confidence.
+          </p>
+          <div class="verification-flow">
+            {% for step in verification_steps %}
+              <div class="pipeline-step">
+                <strong>{{ step.title }}</strong>
+                <span>{{ step.description }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="grid grid-3" style="margin-top: 18px;">
+            <article class="card card-pad">
+              <p class="metric-value">{{ average_research_confidence }}</p>
+              <p class="metric-label">Initial Confidence</p>
+            </article>
+            <article class="card card-pad">
+              <p class="metric-value">{{ verification_review_count }}</p>
+              <p class="metric-label">Verification Reviews</p>
+            </article>
+            <article class="card card-pad">
+              <p class="metric-value">{{ average_verification_confidence }}</p>
+              <p class="metric-label">Final Confidence</p>
+            </article>
+          </div>
+          <div class="field-status-grid" style="margin-top: 18px;">
+            {% for status, count in field_status_counts.items() %}
+              <article class="card card-pad">
+                <p class="metric-value">{{ count }}</p>
+                <p class="metric-label">{{ status }} fields</p>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="human-validation">
+        <div class="shell">
+          <p class="section-kicker">Human Validation</p>
+          <h2 class="section-title">Transparent review process.</h2>
+          <div class="grid grid-3">
+            <article class="card card-pad">
+              <strong>Manual spot checks</strong>
+              <p>A sample of applications was checked against official documentation.</p>
+            </article>
+            <article class="card card-pad">
+              <strong>Agent comparison</strong>
+              <p>Verification results were compared against the original agent output.</p>
+            </article>
+            <article class="card card-pad">
+              <strong>Discrepancy tracking</strong>
+              <p>Discrepancies were recorded and confidence scores were updated.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="limitations">
+        <div class="shell">
+          <p class="section-kicker">Limitations</p>
+          <h2 class="section-title">What this case study does and does not claim.</h2>
+          <div class="grid grid-2">
+            {% for limitation in limitations %}
+              <article class="card card-pad">{{ limitation }}</article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="stack">
+        <div class="shell">
+          <p class="section-kicker">Tech Stack</p>
+          <h2 class="section-title">Production-oriented Python agent components.</h2>
+          <div class="stack-grid">
+            {% for item in tech_stack %}
+              <article class="card stack-card">
+                <strong>{{ item }}</strong>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
     </main>
+
+    <footer>
+      <div class="shell footer-grid">
+        <span>GitHub Repository: {{ footer.github_repository }}</span>
+        <span>Architecture Document: {{ footer.architecture_document }}</span>
+        <span>Generated: {{ generated_time }}</span>
+        <span>Apps Processed: {{ analytics.total_apps }}</span>
+      </div>
+    </footer>
+
+    <script>
+      const chartConfigs = {{ chart_configs|tojson }};
+      const css = getComputedStyle(document.documentElement);
+      const palette = [
+        "#38bdf8",
+        "#22c55e",
+        "#f59e0b",
+        "#f43f5e",
+        "#a78bfa",
+        "#14b8a6",
+        "#f97316",
+        "#64748b"
+      ];
+
+      function renderChart(config) {
+        const element = document.getElementById(config.id);
+        if (!element) return;
+        new Chart(element, {
+          type: config.type,
+          data: {
+            labels: config.labels,
+            datasets: [{
+              label: config.title,
+              data: config.values,
+              backgroundColor: palette,
+              borderColor: palette,
+              borderWidth: 1.5,
+              tension: 0.34
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: { color: css.getPropertyValue("--text").trim() }
+              }
+            },
+            scales: config.type === "doughnut" ? {} : {
+              x: { ticks: { color: css.getPropertyValue("--muted").trim() } },
+              y: {
+                beginAtZero: true,
+                ticks: { color: css.getPropertyValue("--muted").trim(), precision: 0 }
+              }
+            }
+          }
+        });
+      }
+
+      chartConfigs.forEach(renderChart);
+
+      const search = document.getElementById("matrixSearch");
+      const rows = Array.from(document.querySelectorAll("#researchMatrix tbody tr"));
+      if (search) {
+        search.addEventListener("input", () => {
+          const query = search.value.trim().toLowerCase();
+          rows.forEach((row) => {
+            row.style.display = row.innerText.toLowerCase().includes(query) ? "" : "none";
+          });
+        });
+      }
+
+      const toggle = document.getElementById("themeToggle");
+      if (toggle) {
+        toggle.addEventListener("click", () => {
+          const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+          document.documentElement.dataset.theme = nextTheme;
+          toggle.textContent = nextTheme === "dark" ? "Light mode" : "Dark mode";
+        });
+      }
+    </script>
   </body>
 </html>

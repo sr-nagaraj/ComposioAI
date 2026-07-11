@@ -1,9 +1,8 @@
-"""Composio-backed research agent adapter.
+"""Composio-backed research agent adapter using OpenAI.
 
-This adapter uses the official Composio Python SDK session workflow with the
-documented OpenAI Responses provider tool loop. Composio SDK/OpenAI imports are
-kept lazy so the project can still import without optional integration packages
-installed.
+The adapter preserves the existing architecture and port contract. Composio is
+used for public documentation search/fetch, and OpenAI performs structured JSON
+metadata extraction from the retrieved official documentation text.
 """
 
 from __future__ import annotations
@@ -17,8 +16,9 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from research_agent.domain.enums import EvidenceType, ResearchStatus
 from research_agent.domain.input_models import AppInput
@@ -26,6 +26,10 @@ from research_agent.domain.research_models import Evidence, ResearchResult
 from research_agent.interfaces.research_agent_port import ResearchAgentPort
 
 UNKNOWN = "Unknown"
+SEARCH_TOOL = "COMPOSIO_SEARCH_DUCK_DUCK_GO"
+FETCH_TOOL = "COMPOSIO_SEARCH_FETCH_URL_CONTENT"
+COMPOSIO_SEARCH_TOOLKIT_VERSION_ENV = "COMPOSIO_TOOLKIT_VERSION_COMPOSIO_SEARCH"
+DEFAULT_COMPOSIO_SEARCH_TOOLKIT_VERSION = "20260618_00"
 RESEARCH_FIELDS = (
     "category",
     "description",
@@ -39,8 +43,22 @@ RESEARCH_FIELDS = (
 )
 
 
+class ResearchMetadata(BaseModel):
+    """OpenAI structured output schema for research metadata."""
+
+    category: str = Field(default=UNKNOWN)
+    description: str = Field(default=UNKNOWN)
+    authentication: str = Field(default=UNKNOWN)
+    api_type: str = Field(default=UNKNOWN)
+    sdk_available: str = Field(default=UNKNOWN)
+    existing_mcp: str = Field(default=UNKNOWN)
+    buildability: str = Field(default=UNKNOWN)
+    main_blocker: str = Field(default=UNKNOWN)
+    evidence_urls: list[str] = Field(default_factory=list)
+
+
 class ComposioResearchAgent(ResearchAgentPort):
-    """Research official developer documentation with Composio tools."""
+    """Research official developer documentation with Composio and OpenAI."""
 
     def __init__(
         self,
@@ -50,16 +68,25 @@ class ComposioResearchAgent(ResearchAgentPort):
         model_name: str | None = None,
         user_id: str | None = None,
         timeout_seconds: float = 120.0,
-        max_retries: int = 3,
+        max_retries: int = 1,
         requests_per_second: float = 1.0,
+        max_search_results: int | None = None,
+        max_doc_chars: int | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
+        self._load_dotenv()
         self._composio_api_key = composio_api_key or os.getenv("COMPOSIO_API_KEY")
         self._openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-        self._model_name = model_name or os.getenv("MODEL_NAME", "gpt-4.1-mini")
+        self._model_name = model_name or os.getenv("MODEL_NAME", "gpt-4.1")
         self._user_id = user_id or os.getenv("COMPOSIO_USER_ID", "research-agent")
+        self._composio_search_toolkit_version = os.getenv(
+            COMPOSIO_SEARCH_TOOLKIT_VERSION_ENV,
+            DEFAULT_COMPOSIO_SEARCH_TOOLKIT_VERSION,
+        )
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
+        self._max_search_results = max_search_results or int(os.getenv("MAX_SEARCH_RESULTS", "5"))
+        self._max_doc_chars = max_doc_chars or int(os.getenv("MAX_DOC_CHARS", "6000"))
         self._min_interval_seconds = 1.0 / max(requests_per_second, 0.1)
         self._last_request_at = 0.0
         self._rate_limit_lock = asyncio.Lock()
@@ -72,92 +99,114 @@ class ComposioResearchAgent(ResearchAgentPort):
         if not app_name:
             return self._failure_result(app_name=UNKNOWN, error=ValueError("App name is empty"))
 
+        self._logger.info("Searching docs", extra={"app_name": app_name})
         try:
-            metadata = await self._with_retries(lambda: self._research_with_composio(app))
+            metadata = await self._with_retries(
+                lambda: self._research_with_composio_and_openai(app)
+            )
+            self._logger.info("Finished", extra={"app_name": app_name})
             return self._build_result(app_name=app_name, metadata=metadata)
         except Exception as error:
             self._logger.exception(
-                "Composio research failed",
+                "Composio/OpenAI research failed",
                 extra={"app_name": app_name, "error_type": type(error).__name__},
             )
             return self._failure_result(app_name=app_name, error=error)
 
-    async def _research_with_composio(self, app: AppInput) -> dict[str, Any]:
+    async def _research_with_composio_and_openai(self, app: AppInput) -> dict[str, Any]:
         await self._respect_rate_limit()
         return await asyncio.wait_for(
-            asyncio.to_thread(self._run_composio_openai_session, app),
+            asyncio.to_thread(self._run_research, app),
             timeout=self._timeout_seconds,
         )
 
-    def _run_composio_openai_session(self, app: AppInput) -> dict[str, Any]:
+    def _run_research(self, app: AppInput) -> dict[str, Any]:
         if not self._composio_api_key:
             raise RuntimeError("COMPOSIO_API_KEY is required for Composio research.")
         if not self._openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is required for metadata extraction.")
+            raise RuntimeError("OPENAI_API_KEY is required for OpenAI extraction.")
 
         try:
             from composio import Composio
-            from composio_openai import OpenAIResponsesProvider
             from openai import OpenAI
         except ImportError as error:
-            raise RuntimeError(
-                "Install official Composio/OpenAI integration packages: "
-                "`composio`, `composio_openai`, and `openai`."
-            ) from error
+            raise RuntimeError("Install official packages: `composio` and `openai`.") from error
 
-        composio = Composio(
-            api_key=self._composio_api_key,
-            provider=OpenAIResponsesProvider(),
+        composio = Composio(api_key=self._composio_api_key)
+        client = OpenAI(api_key=self._openai_api_key, max_retries=0)
+
+        search_results = self._search_official_docs(composio, app)
+        evidence_urls = self._select_official_urls(search_results, app)
+        if not evidence_urls:
+            self._logger.warning("No official documentation found", extra={"app_name": app.name})
+            return self._unknown_metadata()
+
+        self._logger.info(
+            "Found docs",
+            extra={"app_name": app.name, "evidence_urls": evidence_urls},
         )
-        client = OpenAI(api_key=self._openai_api_key)
-        session = composio.create(
+        docs_text = self._fetch_documentation(composio, evidence_urls)
+        if not docs_text.strip():
+            self._logger.warning(
+                "Official documentation could not be read",
+                extra={"app_name": app.name},
+            )
+            return self._unknown_metadata(evidence_urls=evidence_urls)
+
+        self._logger.info("Extracting metadata", extra={"app_name": app.name})
+        metadata = self._extract_with_openai(client, app, evidence_urls, docs_text)
+        self._logger.info("JSON generated", extra={"app_name": app.name})
+        return metadata
+
+    def _search_official_docs(self, composio: Any, app: AppInput) -> Any:
+        query = self._search_query(app)
+        return composio.tools.execute(
+            SEARCH_TOOL,
+            arguments={"query": query},
             user_id=self._user_id,
-            tags={"disable": ["destructiveHint"]},
-            sandbox={"enable": False},
+            version=self._composio_search_toolkit_version,
         )
-        tools = session.tools()
 
-        response = client.responses.create(
+    def _fetch_documentation(self, composio: Any, evidence_urls: list[str]) -> str:
+        self._logger.info("Opening docs", extra={"evidence_urls": evidence_urls})
+        response = composio.tools.execute(
+            FETCH_TOOL,
+            arguments={
+                "urls": evidence_urls[: self._max_search_results],
+                "text": True,
+                "max_characters": self._max_doc_chars,
+            },
+            user_id=self._user_id,
+            version=self._composio_search_toolkit_version,
+        )
+        return self._compact_text(response)
+
+    def _extract_with_openai(
+        self,
+        client: Any,
+        app: AppInput,
+        evidence_urls: list[str],
+        docs_text: str,
+    ) -> dict[str, Any]:
+        response = client.responses.parse(
             model=self._model_name,
-            tools=tools,
             input=[
                 {
                     "role": "user",
-                    "content": self._research_prompt(app),
+                    "content": self._openai_prompt(app, evidence_urls, docs_text),
                 }
             ],
+            text_format=ResearchMetadata,
         )
-
-        while True:
-            tool_calls = [item for item in response.output if getattr(item, "type", None) == "function_call"]
-            if not tool_calls:
-                break
-
-            self._logger.info(
-                "Executing Composio tool calls",
-                extra={"app_name": app.name, "tool_call_count": len(tool_calls)},
-            )
-            results = composio.provider.handle_tool_calls(response=response, user_id=self._user_id)
-            response = client.responses.create(
-                model=self._model_name,
-                tools=tools,
-                previous_response_id=response.id,
-                input=[
-                    {
-                        "type": "function_call_output",
-                        "call_id": tool_calls[index].call_id,
-                        "output": json.dumps(result),
-                    }
-                    for index, result in enumerate(results)
-                ],
-            )
-
-        content = self._response_text(response)
-        parsed = self._parse_json_object(content)
-        return self._normalize_metadata(parsed)
+        parsed = response.output_parsed
+        if parsed is None:
+            return self._unknown_metadata(evidence_urls=evidence_urls)
+        metadata = parsed.model_dump()
+        metadata.setdefault("evidence_urls", evidence_urls)
+        return self._normalize_metadata(metadata)
 
     async def _with_retries(self, operation: Callable[[], Any]) -> dict[str, Any]:
-        delay_seconds = 1.0
+        delay_seconds = 8.0
         last_error: Exception | None = None
 
         for attempt in range(1, self._max_retries + 1):
@@ -169,7 +218,7 @@ class ComposioResearchAgent(ResearchAgentPort):
                     break
 
                 self._logger.warning(
-                    "Retrying Composio research",
+                    "Retrying research after transient failure",
                     extra={
                         "attempt": attempt,
                         "max_retries": self._max_retries,
@@ -181,7 +230,7 @@ class ComposioResearchAgent(ResearchAgentPort):
                 delay_seconds *= 2
 
         if last_error is None:
-            raise RuntimeError("Composio research failed without an exception.")
+            raise RuntimeError("Research failed without an exception.")
         raise last_error
 
     async def _respect_rate_limit(self) -> None:
@@ -192,95 +241,93 @@ class ComposioResearchAgent(ResearchAgentPort):
                 await asyncio.sleep(wait_seconds)
             self._last_request_at = time.monotonic()
 
-    def _research_prompt(self, app: AppInput) -> str:
-        seed_context = []
-        if app.category:
-            seed_context.append(f"CSV category hint: {app.category}")
+    def _search_query(self, app: AppInput) -> str:
+        homepage = f" {app.homepage_url}" if app.homepage_url else ""
+        return (
+            f"{app.name}{homepage} official developer documentation API authentication "
+            "SDK REST GraphQL"
+        )
+
+    def _select_official_urls(self, search_results: Any, app: AppInput) -> list[str]:
+        text = json.dumps(search_results, default=str)
+        urls = self._extract_urls(text)
+        official_hosts = self._official_host_hints(app)
+        selected: list[str] = []
+
+        for url in urls:
+            parsed = urlparse(url)
+            host = parsed.netloc.lower()
+            path = parsed.path.lower()
+            is_docs_path = any(
+                marker in path for marker in ("api", "docs", "developer", "reference", "sdk")
+            )
+            is_docs_host = host.startswith(("api.", "developer.", "developers."))
+            is_official_host = any(host.endswith(hint) for hint in official_hosts)
+            if is_official_host and (is_docs_path or is_docs_host) and url not in selected:
+                selected.append(url)
+            if len(selected) >= self._max_search_results:
+                break
+
+        return selected
+
+    def _official_host_hints(self, app: AppInput) -> list[str]:
+        hints: list[str] = []
         if app.homepage_url:
-            seed_context.append(f"CSV homepage hint: {app.homepage_url}")
-        if app.notes:
-            seed_context.append(f"CSV notes: {app.notes}")
+            host = urlparse(str(app.homepage_url)).netloc.lower().removeprefix("www.")
+            if host:
+                hints.append(host)
 
-        hints = "\n".join(seed_context) if seed_context else "No CSV hints were provided."
+        normalized_name = re.sub(r"[^a-z0-9]", "", app.name.lower())
+        if normalized_name:
+            hints.extend(
+                [
+                    f"{normalized_name}.com",
+                    f"api.{normalized_name}.com",
+                    f"developer.{normalized_name}.com",
+                    f"developers.{normalized_name}.com",
+                ]
+            )
+        return hints
+
+    def _extract_urls(self, text: str) -> list[str]:
+        urls: list[str] = []
+        for match in re.findall(r"https?://[^\s\"'<>)}\]]+", text):
+            url = match.rstrip(".,;:")
+            if url not in urls:
+                urls.append(url)
+        return urls
+
+    def _openai_prompt(self, app: AppInput, evidence_urls: list[str], docs_text: str) -> str:
         return f"""
-You are researching SaaS developer documentation for: {app.name}
+You are extracting SaaS API metadata for: {app.name}
 
-Use Composio tools to discover and read official developer documentation only.
-Do not use third-party blogs, summaries, or guessed URLs as evidence.
-If official documentation cannot be found or a field is not explicitly supported
-by evidence, return "Unknown" for that field.
+Use only the official documentation excerpts below.
+Never guess. If a field is not explicitly supported by the documentation, use "Unknown".
+Return only JSON that matches the requested schema.
 
-Context:
-{hints}
+Evidence URLs:
+{json.dumps(evidence_urls, indent=2)}
 
-Extract these fields:
+Official documentation excerpts:
+{docs_text[: self._max_doc_chars]}
+
+Extract:
 - category
-- description: one sentence only
+- one-sentence description
 - authentication
 - api_type
 - sdk_available
 - existing_mcp
 - buildability
 - main_blocker
-- evidence_urls: official documentation URLs used as evidence
-
-Return only a JSON object with exactly these keys:
-{{
-  "category": "Unknown",
-  "description": "Unknown",
-  "authentication": "Unknown",
-  "api_type": "Unknown",
-  "sdk_available": "Unknown",
-  "existing_mcp": "Unknown",
-  "buildability": "Unknown",
-  "main_blocker": "Unknown",
-  "evidence_urls": []
-}}
-
-Rules:
-- Every non-Unknown field must be supported by at least one evidence URL.
-- evidence_urls must contain only official developer documentation URLs.
-- Do not include markdown, commentary, or citations outside the JSON object.
+- evidence_urls
 """.strip()
 
-    def _response_text(self, response: Any) -> str:
-        output_text = getattr(response, "output_text", None)
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text
-
-        parts: list[str] = []
-        for item in getattr(response, "output", []):
-            if getattr(item, "type", None) != "message":
-                continue
-            for block in getattr(item, "content", []):
-                text = getattr(block, "text", None)
-                if isinstance(text, str):
-                    parts.append(text)
-                elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                    parts.append(block["text"])
-        return "\n".join(parts)
-
-    def _parse_json_object(self, content: str) -> dict[str, Any]:
-        if not content.strip():
-            return {}
-
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", content, flags=re.DOTALL)
-            if not match:
-                self._logger.warning("Model response did not contain a JSON object")
-                return {}
-            try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                self._logger.warning("Model response JSON could not be decoded")
-                return {}
-
-        if not isinstance(parsed, dict):
-            self._logger.warning("Model response JSON was not an object")
-            return {}
-        return parsed
+    def _compact_text(self, value: Any) -> str:
+        serialized = json.dumps(value, default=str)
+        if len(serialized) <= self._max_doc_chars:
+            return serialized
+        return serialized[: self._max_doc_chars]
 
     def _normalize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         normalized: dict[str, Any] = {}
@@ -292,6 +339,21 @@ Rules:
 
         normalized["confidence_score"] = self._calculate_confidence(normalized)
         return normalized
+
+    def _unknown_metadata(self, *, evidence_urls: list[str] | None = None) -> dict[str, Any]:
+        metadata = {
+            "category": UNKNOWN,
+            "description": UNKNOWN,
+            "authentication": UNKNOWN,
+            "api_type": UNKNOWN,
+            "sdk_available": UNKNOWN,
+            "existing_mcp": UNKNOWN,
+            "buildability": UNKNOWN,
+            "main_blocker": UNKNOWN,
+            "evidence_urls": evidence_urls or [],
+        }
+        metadata["confidence_score"] = self._calculate_confidence(metadata)
+        return metadata
 
     def _build_result(self, *, app_name: str, metadata: dict[str, Any]) -> ResearchResult:
         evidence_urls = metadata.get("evidence_urls", [])
@@ -375,9 +437,7 @@ Rules:
             if not isinstance(raw_url, str):
                 continue
             url = raw_url.strip()
-            if not url.startswith(("https://", "http://")):
-                continue
-            if url in seen:
+            if not url.startswith(("https://", "http://")) or url in seen:
                 continue
             seen.add(url)
             urls.append(url)
@@ -408,3 +468,11 @@ Rules:
         else:
             text = str(value).strip()
         return text or UNKNOWN
+
+    def _load_dotenv(self) -> None:
+        try:
+            from dotenv import load_dotenv
+        except ImportError:
+            return
+
+        load_dotenv()

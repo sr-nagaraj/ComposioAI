@@ -1,4 +1,38 @@
-<header>
-  <h1>AI Research Agent Report</h1>
-  <p>{{ analytics.total_apps }} apps analyzed</p>
+<header class="section" id="hero">
+  <div class="shell">
+    <div class="grid grid-2" style="align-items: center;">
+      <div>
+        <p class="section-kicker">HTML Case Study</p>
+        <h1 class="section-title">AI Research Agent for SaaS API Discovery</h1>
+        <p class="section-copy">
+          Composio SDK + OpenAI Responses API + Verification Agent. A complete case study
+          generated from research, verification, and analytics JSON artifacts.
+        </p>
+        <div class="grid grid-3">
+          {% for metric in hero_metrics[:3] %}
+            <article class="card card-pad">
+              <p class="metric-value">{{ metric.value }}</p>
+              <p class="metric-label">{{ metric.label }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="card card-pad">
+        <p class="section-kicker">At A Glance</p>
+        <div class="grid grid-2">
+          {% for metric in hero_metrics[3:] %}
+            <article>
+              <p class="metric-value">{{ metric.value }}</p>
+              <p class="metric-label">{{ metric.label }}</p>
+            </article>
+          {% endfor %}
+        </div>
+        <div style="margin-top: 22px;">
+          {% for insight in executive_insights[:2] %}
+            <p><strong>{{ insight }}</strong></p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
 </header>

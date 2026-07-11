@@ -29,6 +29,12 @@ class JsonStore(StoragePort):
         async with aiofiles.open(path, "w", encoding="utf-8") as file:
             await file.write(json.dumps(payload, indent=2))
 
+    async def write_model(self, path: Path, model: BaseModel) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = model.model_dump(mode="json")
+        async with aiofiles.open(path, "w", encoding="utf-8") as file:
+            await file.write(json.dumps(payload, indent=2))
+
     async def read_models(self, path: Path, model_type: type[ModelT]) -> list[ModelT]:
         async with aiofiles.open(path, encoding="utf-8") as file:
             payload = json.loads(await file.read())

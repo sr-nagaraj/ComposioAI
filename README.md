@@ -1,183 +1,498 @@
-# AI Research Agent for SaaS API Discovery using Composio SDK & MCP
+# AI Research Agent for SaaS API Discovery
 
-A production-minded Python project for researching SaaS developer documentation,
-extracting structured API metadata, independently verifying the results, and
-publishing the findings as an HTML case study.
+Principal-engineer handoff for the production Python pipeline that researches
+SaaS developer platforms, verifies extracted API metadata against official
+documentation, builds aggregate analytics, and publishes a static HTML case
+study.
 
-The project is designed around Clean Architecture: domain models and use cases
-stay independent from Composio, MCP, file storage, and report rendering. Concrete
-tool integrations live at the outer edge behind explicit interfaces.
+The system is intentionally simple at the center and opinionated at the edges:
+domain models define the contract, use cases coordinate the workflow, and
+adapters own external integrations with Composio, OpenAI, CSV/JSON storage, and
+Jinja2 reporting.
 
-## Overview
+## Executive Summary
 
-Modern SaaS API discovery is slow, repetitive, and error-prone. Teams evaluating
-integrations often need to answer the same questions for many applications:
-
-- Does this product expose a public API?
-- What authentication method does it use?
-- Are SDKs available?
-- Is setup self-serve?
-- Does an MCP server or integration already exist?
-- What would block implementation?
-
-This project automates that workflow while preserving a verification layer. The
-Research Agent gathers evidence from official developer documentation and
-extracts structured metadata. The Verification Agent revisits the cited sources
-independently, compares the original claims against fresh evidence, assigns
-confidence, and flags items that need human review.
-
-The final pipeline produces JSON artifacts and an HTML case study suitable for
-sharing in an interview, internal review, or open-source portfolio.
-
-## Features
-
-- Automated documentation research for app names from `apps.csv`
-- Structured metadata extraction for API discovery fields
-- Independent verification that does not trust Research Agent output
-- Deterministic confidence scoring design
-- Field-level comparison and human-review flags
-- Pattern analysis and analytics-ready domain models
-- Interactive HTML report architecture with Jinja2 templates
-- Resume and checkpointing architecture for interrupted runs
-- Structured logging and per-stage observability hooks
-- Clean ports for Composio SDK and MCP integration
-- Docker, CI, test, and script-ready project layout
-
-## Architecture
+This repository implements a single intelligent research pipeline:
 
 ```text
 apps.csv
-    |
-    v
-Research Agent
-    |
-    v
-research_results.json
-    |
-    v
-Verification Agent
-    |
-    v
-verification_report.json
-    |
-    v
-Analytics
-    |
-    v
-HTML Generator
+  -> Composio Research Agent
+  -> Official documentation search and fetch
+  -> OpenAI Responses API structured extraction
+  -> ResearchResult
+  -> Composio Verification Agent
+  -> Field-level evidence verification
+  -> AnalyticsEngine
+  -> HtmlGenerator
+  -> report.html
 ```
 
-### Stages
+The current generated artifact set contains:
 
-`apps.csv` contains the SaaS applications to evaluate. Each row is parsed into a
-validated domain model before entering the pipeline.
+| Artifact | Purpose |
+| --- | --- |
+| `data/output/research_results.json` | Per-app metadata extracted from official documentation. |
+| `data/output/verification_report.json` | Independent field-level verification results. |
+| `data/output/analytics.json` | Aggregate metrics, breakdowns, insights, and summaries. |
+| `data/output/report.html` | Static case-study dashboard rendered from the JSON artifacts. |
 
-`Research Agent` searches official developer documentation, collects evidence,
-and extracts structured metadata such as category, authentication, API type,
-SDK availability, self-serve status, and buildability.
+The active CLI command is:
 
-`research_results.json` stores normalized research output as typed records. This
-artifact is the boundary between research and verification.
+```bash
+python -m research_agent.cli.main --input data/input/apps.csv --output-dir data/output
+```
 
-`Verification Agent` revisits cited documentation independently, performs a
-fresh extraction, compares field-level values, identifies mismatches, and
-produces a confidence-scored verification report.
+When installed as a package, the same entrypoint is exposed as:
 
-`verification_report.json` stores verification outcomes, discrepancies,
-supporting evidence, confidence, and human-review recommendations.
+```bash
+research-agent --input data/input/apps.csv --output-dir data/output
+```
 
-`Analytics` aggregates research and verification results into summaries,
-category breakdowns, confidence distributions, and flagged apps.
+## Product Question
 
-`HTML Generator` renders the case study report using Jinja2 templates.
+For each SaaS application in `apps.csv`, the pipeline attempts to answer:
 
-## Folder Structure
+- What product category does this app belong to?
+- Does official developer documentation exist?
+- What authentication model is documented?
+- What API surface exists, such as REST or GraphQL?
+- Are official SDKs or client libraries available?
+- Is existing MCP support discoverable from official evidence?
+- How buildable is an integration?
+- What is the primary implementation blocker?
+- Which fields can be independently verified from official documentation?
+
+`Unknown` is an intentional output. The agent should return `Unknown` when
+official evidence is missing or insufficient. That behavior protects the system
+from inventing API capabilities.
+
+## Architecture Principles
+
+1. Domain models are the contract.
+   `ResearchResult`, `VerificationResult`, and `Analytics` are the stable
+   exchange formats between stages.
+
+2. Use cases orchestrate, but do not know vendors.
+   `RunResearch`, `RunVerification`, and `PipelineOrchestrator` coordinate
+   stage boundaries without embedding Composio or OpenAI details.
+
+3. Adapters own external behavior.
+   Tool calls, LLM calls, CSV/JSON persistence, and HTML rendering live at the
+   application edge.
+
+4. Verification is independent.
+   The verification agent reopens cited documentation and validates fields
+   against fetched source text instead of trusting the research stage.
+
+5. Code selects public-documentation tools deterministically.
+   The model receives documentation text. It is not asked to discover Composio
+   tools or decide which tool family to use.
+
+6. Static artifacts are first-class.
+   Each major stage writes a durable JSON artifact before the next presentation
+   layer is generated.
+
+## Clean Architecture Map
 
 ```text
-.
-|-- config/                 # Typed settings and static constants
-|-- data/
-|   |-- input/              # Input CSV files
-|   |-- output/             # Generated JSON and HTML artifacts
-|   `-- checkpoints/        # Resume/checkpoint state
-|-- docs/                   # Architecture notes and report assets
-|-- research/               # Research Agent phase files
-|-- verification/           # Verification Agent phase files
-|-- scripts/                # Local run helpers
-|-- src/research_agent/
-|   |-- domain/             # Pydantic entities and enums
-|   |-- interfaces/         # Abstract ports
-|   |-- use_cases/          # Application orchestration
-|   |-- analytics/          # Pure analytics computation
-|   |-- adapters/           # Storage, reporting, and concrete tool adapters
-|   |-- infrastructure/     # Logging, retry, cache, checkpoint utilities
-|   `-- cli/                # Composition root
-|-- tests/                  # Pytest unit and integration tests
-|-- Dockerfile
-|-- docker-compose.yml
-|-- Makefile
-`-- pyproject.toml
+config/
+  constants.py
+  settings.py
+
+data/
+  input/apps.csv
+  output/
+
+docs/
+  architecture.md
+
+src/research_agent/
+  domain/
+    input_models.py
+    research_models.py
+    verification_models.py
+    analytics_models.py
+    enums.py
+  interfaces/
+    research_agent_port.py
+    verification_agent_port.py
+    storage_port.py
+  use_cases/
+    run_research.py
+    run_verification.py
+    pipeline_orchestrator.py
+  analytics/
+    engine.py
+  adapters/
+    agents/
+      composio_research_agent.py
+      composio_verification_agent.py
+    storage/
+      csv_reader.py
+      json_store.py
+    reporting/
+      html_generator.py
+      templates/
+  infrastructure/
+    logging_setup.py
+    retry_policy.py
+    rate_limiter.py
+    checkpoint_manager.py
+    cache.py
+  cli/
+    main.py
+
+tests/
+  unit/
+  integration/
 ```
+
+The active runtime implementation is under `src/research_agent`. The root-level
+`research/` and `verification/` packages are older scaffold modules and are not
+composed by `research_agent.cli.main`.
+
+## Runtime Flow
+
+```mermaid
+flowchart TD
+    A["data/input/apps.csv"] --> B["JsonStore.read_apps / CSVReader"]
+    B --> C["RunResearch"]
+    C --> D["ComposioResearchAgent"]
+    D --> E["COMPOSIO_SEARCH_DUCK_DUCK_GO"]
+    D --> F["COMPOSIO_SEARCH_FETCH_URL_CONTENT"]
+    F --> G["OpenAI Responses API structured extraction"]
+    G --> H["research_results.json"]
+    H --> I["RunVerification"]
+    I --> J["ComposioVerificationAgent"]
+    J --> K["Fetch cited official docs"]
+    K --> L["OpenAI Responses API structured verification"]
+    L --> M["verification_report.json"]
+    M --> N["AnalyticsEngine.build"]
+    N --> O["analytics.json"]
+    O --> P["HtmlGenerator / Jinja2"]
+    P --> Q["report.html"]
+```
+
+Stages are sequential, but research and verification process apps concurrently
+inside their stages using bounded `asyncio.Semaphore` concurrency.
+
+## Main Components
+
+### CLI Composition Root
+
+`src/research_agent/cli/main.py` wires the production runtime:
+
+- `JsonStore`
+- `ComposioResearchAgent`
+- `ComposioVerificationAgent`
+- `AnalyticsEngine`
+- `HtmlGenerator`
+- `PipelineOrchestrator`
+
+It writes exactly these files to the selected output directory:
+
+```text
+research_results.json
+verification_report.json
+analytics.json
+report.html
+```
+
+### Pipeline Orchestrator
+
+`PipelineOrchestrator` executes the full workflow:
+
+1. Read CSV input.
+2. Run research.
+3. Save research JSON.
+4. Run verification.
+5. Save verification JSON.
+6. Build analytics.
+7. Save analytics JSON.
+8. Render the HTML report.
+
+The orchestrator is deliberately thin. It coordinates stage boundaries and
+artifact persistence; it does not contain provider-specific logic.
+
+### Research Agent
+
+`ComposioResearchAgent` is the concrete implementation of
+`ResearchAgentPort`.
+
+It uses:
+
+- `COMPOSIO_SEARCH_DUCK_DUCK_GO` for public documentation search.
+- `COMPOSIO_SEARCH_FETCH_URL_CONTENT` for documentation fetch.
+- `OpenAI.responses.parse(...)` with the `ResearchMetadata` Pydantic schema.
+
+Important behavior:
+
+- Builds a targeted query for official developer documentation.
+- Selects URLs using official-host and documentation-path heuristics.
+- Fetches documentation text before calling OpenAI.
+- Uses structured output rather than manual JSON parsing.
+- Normalizes unsupported fields to `Unknown`.
+- Computes confidence from known fields and evidence URL count.
+- Returns a typed failed `ResearchResult` for per-app failures.
+
+### Verification Agent
+
+`ComposioVerificationAgent` is the concrete implementation of
+`VerificationAgentPort`.
+
+It uses:
+
+- Existing research evidence URLs first.
+- Deterministic `COMPOSIO_SEARCH_FETCH_URL_CONTENT` calls for cited URLs.
+- One fallback public documentation search only if all cited fetches fail.
+- `OpenAI.responses.parse(...)` with the `VerificationMetadata` schema.
+
+Verification output includes:
+
+- `field_results`: `PASS`, `FAIL`, or `UNKNOWN` per field.
+- `field_confidence`: confidence per field.
+- `discrepancies`: reasons for failed or unknown fields.
+- `supporting_evidence`: official documentation excerpts.
+- `verification_status`: verified, partially verified, unverified, or
+  contradicted.
+
+This adapter intentionally does not delegate tool selection to the model. The
+model is instructed to verify using already-fetched documentation text.
+
+### Analytics Engine
+
+`AnalyticsEngine` is pure computation over research and verification results.
+
+It produces:
+
+- total app count
+- verification status counts
+- average research and verification confidence
+- category, authentication, API type, SDK, MCP, buildability, and blocker
+  breakdowns
+- confidence distribution buckets
+- self-serve and gated-access counts
+- generated insights
+- top flagged apps
+- app summaries for reporting
+
+### HTML Report
+
+`HtmlGenerator` renders a standalone Jinja2 report using:
+
+- `research_results`
+- `verification_results`
+- `analytics`
+
+The generated page includes:
+
+- executive summary
+- architecture and workflow sections
+- dashboard metrics
+- eight chart canvases
+- searchable research matrix
+- expandable app detail cards
+- verification summary
+- human validation notes
+- limitations
+- tech stack
+
+The page references Chart.js from a CDN. For offline or air-gapped operation,
+vendor Chart.js locally and update `index.html.jinja`.
+
+## Report Page Audit
+
+The current `data/output/report.html` was served locally at:
+
+```text
+http://127.0.0.1:8765/report.html
+```
+
+Observed browser results:
+
+| Check | Result |
+| --- | --- |
+| Page title | `AI Research Agent for SaaS API Discovery` |
+| H1 | `AI Research Agent for SaaS API Discovery` |
+| Main sections | hero, summary, architecture, workflow, dashboard, charts, matrix, apps, patterns, verification, human validation, limitations, stack |
+| Research matrix rows | 100 |
+| Expandable app cards | 100 |
+| Chart canvases | 8 |
+| Matrix search | Filtering `Slack` reduced the table to 1 visible row. |
+| Theme toggle | Dark mode switched to light mode and button text updated. |
+| Desktop horizontal overflow | None detected at a 1265px browser viewport. |
+| Browser console errors | None detected during inspection. |
+
+The report is suitable as a static review artifact. It should not be treated as
+the source of truth; the JSON artifacts remain the source of truth.
+
+## Data Contracts
+
+### Input CSV
+
+`data/input/apps.csv` is read by `CSVReader`.
+
+Expected columns:
+
+```csv
+name,category,homepage_url,notes
+```
+
+Only `name` is required. Optional columns become hints on `AppInput`.
+
+### ResearchResult
+
+`ResearchResult` contains:
+
+- `app_name`
+- `status`
+- `summary`
+- `category`
+- `documentation_urls`
+- `evidence`
+- `confidence_score`
+- `researched_at`
+- `raw_agent_metadata`
+
+### VerificationResult
+
+`VerificationResult` contains:
+
+- `app_name`
+- `research_result_ref`
+- `verification_status`
+- `confidence_score`
+- `field_results`
+- `field_confidence`
+- `discrepancies`
+- `supporting_evidence`
+- `verified_at`
+
+### Analytics
+
+`Analytics` contains:
+
+- run-level counts
+- confidence averages
+- breakdown dictionaries
+- confidence distribution
+- access-pattern counts
+- success rates
+- insights
+- flagged apps
+- app summaries
+- generation timestamp
+
+## Configuration
+
+Settings are loaded by `config/settings.py` through Pydantic settings and `.env`.
+
+Required for live research:
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | OpenAI Responses API extraction and verification. |
+| `COMPOSIO_API_KEY` | Composio search and URL fetch tools. |
+
+Common optional settings:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MODEL_NAME` | `gpt-4.1` | OpenAI model for research and verification. |
+| `COMPOSIO_USER_ID` | `research-agent` | User/session id passed to Composio tool calls. |
+| `MAX_CONCURRENT_REQUESTS` | `5` | Bounded concurrency for research and verification. |
+| `REQUESTS_PER_SECOND` | `2` | Global request-rate setting. |
+| `MAX_SEARCH_RESULTS` | `5` | Max research documentation URLs to fetch. |
+| `MAX_DOC_CHARS` | `6000` | Max research documentation text passed to extraction. |
+| `MAX_VERIFICATION_DOC_CHARS_PER_URL` | `6000` | Max verification text per URL. |
+| `MAX_VERIFICATION_TOTAL_DOC_CHARS` | `24000` | Max verification prompt documentation text. |
+| `MAX_VERIFICATION_FALLBACK_SEARCH_RESULTS` | `3` | Max fallback docs fetched during verification. |
+| `OPENAI_MAX_OUTPUT_TOKENS` | `1200` | Verification structured output budget. |
+| `LOG_LEVEL` | `INFO` | Application logging level. |
+| `OUTPUT_DIR` | `data/output` | Default output directory. |
+
+Example `.env`:
+
+```env
+OPENAI_API_KEY=sk-...
+COMPOSIO_API_KEY=cmp_...
+MODEL_NAME=gpt-4.1
+LOG_LEVEL=INFO
+MAX_CONCURRENT_REQUESTS=5
+```
+
+Do not commit `.env`.
 
 ## Installation
 
-Requires Python 3.12.
+Python 3.11 or newer is required.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-cp .env.example .env
-```
-
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
-python -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
-Copy-Item .env.example .env
 ```
 
-Update `.env` with your API keys and runtime settings before running the
-pipeline.
+POSIX shell:
 
-## Environment Variables
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
 
-| Variable | Description | Example |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | API key for the LLM provider used by extraction prompts. | `sk-...` |
-| `COMPOSIO_API_KEY` | API key for Composio SDK/MCP tool access. | `cmp_...` |
-| `MODEL_NAME` | Model used for metadata extraction and verification. | `gpt-4.1-mini` |
-| `LOG_LEVEL` | Logging verbosity. | `INFO` |
-| `OUTPUT_DIR` | Directory for generated JSON and HTML artifacts. | `data/output` |
+You can also install pinned runtime dependencies from `requirements.txt`:
 
-## Usage
+```bash
+python -m pip install -r requirements.txt
+```
+
+## Running The Pipeline
 
 Run the complete pipeline:
 
 ```bash
-research-agent run --input data/input/apps.csv --output-dir data/output
+python -m research_agent.cli.main --input data/input/apps.csv --output-dir data/output
 ```
 
-Run only research:
+Expected outputs:
 
-```bash
-make research
+```text
+data/output/research_results.json
+data/output/verification_report.json
+data/output/analytics.json
+data/output/report.html
 ```
 
-Run only verification:
+Serve the report locally:
 
 ```bash
-make verify
+cd data/output
+python -m http.server 8765 --bind 127.0.0.1
 ```
 
-Generate HTML only:
+Open:
+
+```text
+http://127.0.0.1:8765/report.html
+```
+
+On this Windows workspace, the virtualenv executable can be used directly:
+
+```powershell
+C:\ComposeioAI\.venv\Scripts\python.exe -m http.server 8765 --bind 127.0.0.1
+```
+
+## Development Commands
+
+Compile a changed module:
 
 ```bash
-make html
+python -m py_compile src/research_agent/adapters/reporting/html_generator.py
 ```
 
 Run tests:
@@ -186,181 +501,93 @@ Run tests:
 pytest
 ```
 
-Run with Docker:
+Run a quick OpenAI connectivity check:
 
 ```bash
-docker compose up
+python check_models.py
 ```
 
-## Project Workflow
+## Logging And Observability
 
-### Research
+`configure_logging(...)` writes logs to stderr and `logs/app.log`.
 
-The Research Agent receives an app name, searches official documentation through
-the Composio/MCP integration point, collects evidence, prompts an LLM to extract
-structured metadata, and returns a `ResearchResult`.
+The pipeline logs major stages:
 
-### Verification
+- reading CSV
+- running research
+- research completion
+- running verification
+- verification completion
+- analytics generation
+- HTML report generation
+- pipeline completion
 
-The Verification Agent reads research output, revisits evidence URLs, extracts
-metadata independently, compares verified values against the original research,
-and generates field-level status and confidence.
+The agents log tool selection, documentation fetches, extraction, retries, and
+normalization summaries. This matters because most production failures in this
+system are evidence-access or provider-response failures, not orchestration
+failures.
 
-### Analytics
+## Error Handling Model
 
-The analytics engine aggregates research and verification records into app
-summaries, confidence averages, status counts, category breakdowns, and flagged
-apps.
+The Composio adapters catch ordinary per-app failures and return typed failure
+results. This lets the pipeline still produce analytics and HTML output when an
+individual app cannot be researched or verified.
 
-### HTML Generation
+Current caveat: `RunResearch` and `RunVerification` use `asyncio.gather`
+without `return_exceptions=True`. The current adapters absorb expected per-app
+failures, but an unexpected bug escaping an adapter can still fail the batch. If
+hard per-app isolation is required, convert escaped exceptions into typed
+failed domain results at the use-case layer.
 
-The report layer renders analytics and app summaries into a static HTML case
-study using Jinja2 templates. The generated report is intended to be published
-as a portfolio artifact or static deployment.
+## Testing Status
 
-## Verification Strategy
+Current tests cover:
 
-The verification phase is intentionally independent. It does not trust the
-Research Agent's extracted metadata. Instead, it revisits the cited
-documentation, performs a separate extraction, and compares each field.
+- basic domain model validation
+- analytics status counts
+- analytics breakdown generation
 
-Confidence scoring is deterministic and should consider evidence quality,
-official documentation, number of sources, unknown fields, contradictions, and
-missing documentation. Results that are ambiguous, unsupported, or conflicting
-should be marked for human review.
+The integration test is currently a placeholder. Meaningful integration testing
+should mock or sandbox:
 
-### Limitations
+- Composio search results
+- Composio URL fetch output
+- OpenAI structured responses
+- full CLI artifact generation
 
-- Verification quality depends on the availability and clarity of official docs.
-- Some vendors hide API details behind login or sales flows.
-- Documentation can change after a run.
-- LLM extraction must be constrained to evidence-backed JSON and should return
-  `Unknown` when uncertain.
-- Composio SDK calls must be implemented only against confirmed SDK APIs.
+## Production Readiness Assessment
 
-## Screenshots
+Strengths:
 
-Add generated report screenshots here after the HTML report is available:
+- Clean separation between domain, interfaces, use cases, adapters, analytics,
+  and CLI wiring.
+- Deterministic Composio tool selection for public documentation search/fetch.
+- OpenAI Responses API structured outputs instead of manual JSON parsing.
+- Independent verification stage with field-level status and confidence.
+- Complete artifact pipeline from CSV to JSON to static HTML.
+- Browser-verified report page with working search, theme toggle, charts, and
+  app-card rendering for the current 100-app artifact set.
 
-![Dashboard](docs/dashboard.png)
-![Verification Report](docs/verification-report.png)
+Risks and hardening steps:
 
-## Future Improvements
+- Add full CLI integration tests with mocked Composio and OpenAI.
+- Vendor Chart.js locally for offline report rendering.
+- Implement checkpoint persistence if long runs must resume after interruption.
+- Add exception isolation at the use-case layer.
+- Add persistent fetch caching keyed by URL to reduce repeated provider cost.
+- Add schema/version metadata to generated JSON artifacts.
+- Add timing metrics per stage and per app.
+- Add report-level accessibility checks for keyboard navigation and contrast.
 
-- Persistent response caching keyed by app name and source URL
-- Parallel worker queues for 1000+ app evaluations
-- Browser automation for docs that require client-side rendering
-- RAG over collected documentation for richer extraction
-- Incremental updates when docs change
-- SQLite or Postgres storage for intermediate results
-- Static hosting deployment for the HTML case study
-- CI artifact upload for generated reports
-- Richer observability with p50/p95 timings and error-rate dashboards
+## Provider Boundary
 
-## Deployment
+This project uses:
 
-The case study can be deployed as a static artifact after HTML generation. A
-typical deployment flow is:
+- Composio SDK for search and fetch tooling.
+- OpenAI Python SDK for LLM extraction and verification.
+- OpenAI Responses API structured output through `client.responses.parse(...)`.
 
-```bash
-make install
-make run
-make html
-```
-
-Then publish `data/output/index.html` and any supporting assets to GitHub Pages,
-Netlify, Vercel, or another static host.
-
-## Final Polish Recommendations
-
-### Performance
-
-- Use bounded `asyncio` concurrency for research and verification.
-- Cache source fetches and LLM extraction outputs.
-- Process large app lists in chunks and checkpoint after each app.
-
-### Security
-
-- Keep all API keys in `.env` or secret managers.
-- Never log raw secrets or full LLM prompts containing credentials.
-- Validate and normalize URLs before fetching.
-- Restrict external tool permissions to the minimum required scope.
-
-### Error Handling
-
-- Treat one app failure as a partial result, not a pipeline failure.
-- Separate transient errors from permanent validation failures.
-- Log retries with attempt count, delay, app name, and stage.
-- Surface low-confidence and contradicted outputs for human review.
-
-### Production Readiness
-
-- Replace Composio placeholders only after confirming SDK methods.
-- Add integration tests with mocked Composio/MCP clients.
-- Store generated artifacts with run IDs.
-- Add run-level metrics and structured JSON logs.
-
-## Interview Talking Points
-
-- Clean Architecture keeps domain models independent from Composio and MCP.
-- Ports allow agents to be mocked, tested, or swapped without rewriting use
-  cases.
-- Verification is a separate trust boundary, not a formatting pass.
-- Confidence scoring should be deterministic and explainable.
-- The pipeline is designed for partial failures and resumable execution.
-- The HTML report turns raw agent output into a usable case study artifact.
-
-## Potential Interview Questions
-
-**Why separate research and verification?**
-
-Because extraction alone can be wrong. Verification creates an independent check
-against the same or additional evidence and makes uncertainty explicit.
-
-**Why use Clean Architecture here?**
-
-It isolates business rules from volatile SDKs and external tools. Composio can
-change without forcing changes to the domain model or use cases.
-
-**How would you scale from 100 to 1000 apps?**
-
-Use bounded concurrency, checkpoint per app, cache repeated source reads, process
-in chunks, and move to a queue-backed worker model when one process is no longer
-enough.
-
-**How do you avoid hallucinated metadata?**
-
-Prompts require JSON, evidence per field, and `Unknown` when uncertain. The
-extractor and parser should reject unsupported values instead of guessing.
-
-**What makes confidence trustworthy?**
-
-The scoring rules are deterministic and based on evidence presence, source
-quality, agreement between original and verified values, unknown fields, and
-conflicts.
-
-## Deliverable Checklist
-
-- [x] Research Agent
-- [x] Verification Agent
-- [x] Analytics
-- [ ] HTML Report
-- [x] README
-- [ ] Docker
-- [ ] Tests
-- [ ] CI/CD
-- [ ] Deployment
-- [x] Documentation
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
-
-## Acknowledgements
-
-- [Composio](https://composio.dev/)
-- [OpenAI](https://openai.com/)
-- [Python](https://www.python.org/)
-- [Jinja2](https://jinja.palletsprojects.com/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Chart.js](https://www.chartjs.org/)
+The provider boundary is narrow by design. Future provider changes should be
+isolated to `src/research_agent/adapters/agents/` and configuration. They
+should not require changes to domain models, ports, orchestration, analytics,
+or reporting contracts.

@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     checkpoint_dir: Path = Field(default=Path("data/checkpoints"), alias="CHECKPOINT_DIR")
     log_dir: Path = Field(default=Path("logs"), alias="LOG_DIR")
     composio_api_key: str | None = Field(default=None, alias="COMPOSIO_API_KEY")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    model_name: str = Field(default="gpt-4.1", alias="MODEL_NAME")
 
     @field_validator("input_path", "output_dir", "checkpoint_dir", "log_dir")
     @classmethod

@@ -1,4 +1,64 @@
-<article>
-  <h2>{{ app.app_name }}</h2>
-  <p>{{ app.overall_status }}</p>
-</article>
+<details class="card app-card">
+  <summary>
+    <div style="display: flex; justify-content: space-between; gap: 14px; align-items: start;">
+      <div>
+        <h3>{{ app.app_name }}</h3>
+        <p style="margin: 0; color: var(--muted);">{{ app.description }}</p>
+      </div>
+      <span class="badge badge-{{ app.verification_class }}">{{ app.verification_status }}</span>
+    </div>
+  </summary>
+  <div class="detail-body">
+    <div class="kv-grid" style="margin-top: 18px;">
+      <div class="kv"><span>Category</span>{{ app.category }}</div>
+      <div class="kv"><span>Authentication</span>{{ app.authentication }}</div>
+      <div class="kv"><span>API Surface</span>{{ app.api_type }}</div>
+      <div class="kv"><span>SDK</span>{{ app.sdk_available }}</div>
+      <div class="kv"><span>Existing MCP</span>{{ app.existing_mcp }}</div>
+      <div class="kv"><span>Buildability</span>{{ app.buildability }}</div>
+      <div class="kv"><span>Main Blocker</span>{{ app.main_blocker }}</div>
+      <div class="kv"><span>Confidence</span>{{ app.verification_confidence }}</div>
+    </div>
+
+    <h4>Evidence URLs</h4>
+    <div class="evidence-links">
+      {% for url in app.evidence_urls %}
+        <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>
+      {% else %}
+        <span style="color: var(--muted);">No evidence URL recorded.</span>
+      {% endfor %}
+    </div>
+
+    <h4>Field Validation</h4>
+    <div class="field-status-grid">
+      {% for field in app.field_results %}
+        <div class="kv">
+          <span>{{ field.field }}</span>
+          <span class="badge badge-{{ field.class }}">{{ field.status }}</span>
+        </div>
+      {% endfor %}
+    </div>
+
+    <h4>Discrepancies</h4>
+    <ul>
+      {% for discrepancy in app.discrepancies %}
+        <li>{{ discrepancy }}</li>
+      {% else %}
+        <li>No discrepancies recorded.</li>
+      {% endfor %}
+    </ul>
+
+    <h4>Supporting Evidence</h4>
+    <div class="grid">
+      {% for evidence in app.supporting_evidence %}
+        <article class="kv">
+          <span>{{ evidence.score }} relevance</span>
+          <p>{{ evidence.excerpt }}</p>
+          <a href="{{ evidence.url }}" target="_blank" rel="noopener">Open source</a>
+        </article>
+      {% else %}
+        <article class="kv">No supporting evidence excerpt recorded.</article>
+      {% endfor %}
+    </div>
+  </div>
+</details>

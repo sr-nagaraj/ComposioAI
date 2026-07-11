@@ -15,6 +15,8 @@ class VerificationResult(BaseModel):
     research_result_ref: str = Field(min_length=1)
     verification_status: VerificationStatus
     confidence_score: float = Field(ge=0, le=1)
+    field_results: dict[str, str] = Field(default_factory=dict)
+    field_confidence: dict[str, float] = Field(default_factory=dict)
     discrepancies: list[str] = Field(default_factory=list)
     supporting_evidence: list[Evidence] = Field(default_factory=list)
     verified_at: datetime
